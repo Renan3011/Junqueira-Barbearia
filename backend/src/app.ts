@@ -17,6 +17,17 @@ app.use(express.json()); app.use(cookieParser());
 const guard = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (await session(req.cookies.session)) next(); else res.status(401).json({ error: "Acesso restrito. Faça login para continuar." });
 };
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 8,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  handler: (req, res, _next, options) => {
+    console.warn("[auth] Limite de tentativas de login atingido", { ip: req.ip });
+    res.status(options.statusCode).json({ error: "Muitas tentativas de acesso. Aguarde alguns minutos antes de tentar novamente." });
+  }
+});
 const slotLabel = (d: Date) => d.toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" });
 const bookingInput = z.object({ serviceId: z.string(), startsAt: z.string().datetime(), name: z.string().trim().min(2).max(100), phone: z.string().trim().min(8).max(32).refine(value => normalizePhone(value) !== null, "Informe um telefone válido."), note: z.string().trim().max(500).optional() });
 const serviceInput = z.object({ name: z.string().trim().min(2).max(100), description: z.string().trim().max(500).optional().nullable(), price: z.number().int().nonnegative(), durationMinutes: z.number().int().min(10).max(480) });
@@ -66,12 +77,17 @@ app.post("/api/bookings", async (req, res) => {
   catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : "Não foi possível criar o agendamento. Tente novamente." }); }
 });
 
-app.post("/api/admin/login", rateLimit({ windowMs: 15 * 60 * 1000, limit: 8, standardHeaders: true, legacyHeaders: false }), async (req, res) => {
+app.post("/api/admin/login", loginLimiter, async (req, res) => {
   const body = z.object({ email: z.string().email(), password: z.string().min(1) }).safeParse(req.body);
   if (!body.success) return res.status(400).json({ error: "Confira o e-mail e a senha informados." });
-  const user = await prisma.user.findUnique({ where: { email: body.data.email } });
-  if (!user || !await bcrypt.compare(body.data.password, user.passwordHash)) return res.status(401).json({ error: "E-mail ou senha inválidos. Tente novamente." });
-  res.cookie("session", await signSession(user.id), { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: 8 * 3600000, path: "/" }).json({ name: user.name });
+  try {
+    const user = await prisma.user.findUnique({ where: { email: body.data.email } });
+    if (!user || !await bcrypt.compare(body.data.password, user.passwordHash)) return res.status(401).json({ error: "E-mail ou senha inválidos. Tente novamente." });
+    res.cookie("session", await signSession(user.id), { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: 8 * 3600000, path: "/" }).json({ name: user.name });
+  } catch (error) {
+    console.error("[auth] Falha interna ao concluir o login", error);
+    res.status(500).json({ error: "Não foi possível concluir esta ação. Tente novamente." });
+  }
 });
 app.post("/api/admin/logout", (_, res) => res.clearCookie("session", { path: "/" }).status(204).end());
 app.get("/api/admin/me", guard, (_, res) => res.json({ ok: true }));
