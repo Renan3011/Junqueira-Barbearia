@@ -11,6 +11,10 @@ enum BookingStatus {
  CANCELLED
  COMPLETED
 }
+enum BookingOrigin {
+ SITE
+ BARBER
+}
 model User {
  id String @id @default(cuid())
  email String @unique
@@ -23,6 +27,7 @@ model Service {
  name String
  price Int
  durationMinutes Int
+ description String?
  active Boolean @default(true)
  bookings Booking[]
  createdAt DateTime @default(now())
@@ -42,6 +47,8 @@ model Booking {
  startsAt DateTime @db.Timestamptz(6)
  endsAt DateTime @db.Timestamptz(6)
  status BookingStatus @default(PENDING)
+ origin BookingOrigin @default(SITE)
+ readAt DateTime?
  note String?
  createdAt DateTime @default(now())
  customer Customer @relation(fields:[customerId], references:[id])

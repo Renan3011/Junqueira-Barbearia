@@ -10,7 +10,29 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "prisma db seed"
   },
-  "prisma": {"seed": "tsx prisma/seed.ts"},
-  "dependencies": {"@prisma/client":"^6.16.2","bcryptjs":"^3.0.2","cookie-parser":"^1.4.7","cors":"^2.8.5","dotenv":"^16.6.1","express":"^5.1.0","express-rate-limit":"^8.1.0","jose":"^6.1.0","zod":"^4.1.5"},
-  "devDependencies": {"@types/cookie-parser":"^1.4.9","@types/cors":"^2.8.19","@types/express":"^5.0.3","@types/node":"^24.3.1","prisma":"^6.16.2","tsx":"^4.20.5","typescript":"^5.9.2","vitest":"^3.2.4"}
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.16.2",
+    "bcryptjs": "^3.0.2",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.1.0",
+    "jose": "^6.1.0",
+    "libphonenumber-js": "^1.13.15",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.9",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.3.1",
+    "prisma": "^6.16.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
 }
