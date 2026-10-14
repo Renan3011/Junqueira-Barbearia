@@ -8,6 +8,7 @@ datasource db {
 enum BookingStatus {
  PENDING
  CONFIRMED
+ IN_PROGRESS
  CANCELLED
  COMPLETED
 }
@@ -49,6 +50,9 @@ model Booking {
  status BookingStatus @default(PENDING)
  origin BookingOrigin @default(SITE)
  readAt DateTime?
+ customerActionTokenHash String? @unique
+ customerActionExpiresAt DateTime?
+ cancelledByCustomerAt DateTime?
  note String?
  createdAt DateTime @default(now())
  customer Customer @relation(fields:[customerId], references:[id])

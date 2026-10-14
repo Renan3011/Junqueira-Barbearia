@@ -3,6 +3,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
 import bcrypt from "bcryptjs";
+import { createHash, randomBytes } from "node:crypto";
 import { PrismaClient, BookingOrigin, BookingStatus } from "@prisma/client";
 import { z } from "zod";
 import { dayBounds, weekday } from "./time.js";
@@ -31,11 +32,13 @@ const loginLimiter = rateLimit({
 const slotLabel = (d: Date) => d.toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" });
 const bookingInput = z.object({ serviceId: z.string(), startsAt: z.string().datetime(), name: z.string().trim().min(2).max(100), phone: z.string().trim().min(8).max(32).refine(value => normalizePhone(value) !== null, "Informe um telefone válido."), note: z.string().trim().max(500).optional() });
 const serviceInput = z.object({ name: z.string().trim().min(2).max(100), description: z.string().trim().max(500).optional().nullable(), price: z.number().int().nonnegative(), durationMinutes: z.number().int().min(10).max(480) });
+const actionHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
 async function createBooking(data: z.infer<typeof bookingInput>, origin: BookingOrigin) {
   const start = new Date(data.startsAt);
   const phone = normalizePhone(data.phone);
   if (!phone) throw new Error("Informe um telefone válido.");
+  const actionToken = origin === BookingOrigin.SITE ? randomBytes(32).toString("base64url") : null;
   return prisma.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(72341)`;
     const service = await tx.service.findFirst({ where: { id: data.serviceId, active: true } });
@@ -50,7 +53,8 @@ async function createBooking(data: z.infer<typeof bookingInput>, origin: Booking
       || await tx.scheduleBlock.findFirst({ where: { startsAt: { lt: end }, endsAt: { gt: start } } });
     if (conflict) throw new Error("Esse horário acabou de ser ocupado. Escolha outro horário.");
     const customer = await tx.customer.upsert({ where: { phone }, update: { name: data.name }, create: { name: data.name, phone } });
-    return tx.booking.create({ data: { customerId: customer.id, serviceId: service.id, startsAt: start, endsAt: end, note: data.note, origin } });
+    const booking = await tx.booking.create({ data: { customerId: customer.id, serviceId: service.id, startsAt: start, endsAt: end, note: data.note, origin, customerActionTokenHash: actionToken ? actionHash(actionToken) : undefined, customerActionExpiresAt: actionToken ? new Date(start.getTime() + 30 * 24 * 3600000) : undefined } });
+    return { booking, actionToken };
   }, { isolationLevel: "Serializable" });
 }
 
@@ -73,8 +77,18 @@ app.get("/api/availability", async (req, res) => {
 app.post("/api/bookings", async (req, res) => {
   const parsed = bookingInput.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Confira os dados informados e tente novamente." });
-  try { const booking = await createBooking(parsed.data, BookingOrigin.SITE); res.status(201).json({ id: booking.id, status: booking.status }); }
+  try { const result = await createBooking(parsed.data, BookingOrigin.SITE); res.status(201).json({ id: result.booking.id, status: result.booking.status, customerActionToken: result.actionToken }); }
   catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : "Não foi possível criar o agendamento. Tente novamente." }); }
+});
+app.post("/api/customer/bookings/:token/:action", async (req, res) => {
+  const action = z.enum(["confirm", "cancel"]).safeParse(req.params.action);
+  if (!action.success) return res.status(400).json({ error: "Ação inválida." });
+  const booking = await prisma.booking.findUnique({ where: { customerActionTokenHash: actionHash(String(req.params.token)) } });
+  if (!booking || !booking.customerActionExpiresAt || booking.customerActionExpiresAt < new Date()) return res.status(404).json({ error: "Este link não é válido ou expirou." });
+  if (booking.status === BookingStatus.COMPLETED || booking.status === BookingStatus.CANCELLED) return res.status(409).json({ error: "Este agendamento não pode mais ser alterado." });
+  const data = action.data === "confirm" ? { status: BookingStatus.CONFIRMED } : { status: BookingStatus.CANCELLED, cancelledByCustomerAt: new Date(), note: [booking.note, "Cancelado pelo cliente."].filter(Boolean).join(" ") };
+  const updated = await prisma.booking.update({ where: { id: booking.id }, data });
+  res.json({ status: updated.status, message: action.data === "confirm" ? "Horário confirmado com sucesso." : "Horário cancelado. O horário já está disponível novamente." });
 });
 
 app.post("/api/admin/login", loginLimiter, async (req, res) => {
@@ -100,7 +114,7 @@ app.get("/api/admin/bookings", guard, async (req, res) => {
 app.post("/api/admin/bookings", guard, async (req, res) => {
   const parsed = bookingInput.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Confira os dados do atendimento e tente novamente." });
-  try { res.status(201).json(await createBooking(parsed.data, BookingOrigin.BARBER)); }
+  try { res.status(201).json((await createBooking(parsed.data, BookingOrigin.BARBER)).booking); }
   catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : "Não foi possível criar o atendimento. Tente novamente." }); }
 });
 app.patch("/api/admin/bookings/:id", guard, async (req, res) => {
@@ -136,4 +150,8 @@ app.post("/api/admin/blocks", guard, async (req, res) => {
   const body = z.object({ startsAt: z.string().datetime(), endsAt: z.string().datetime(), reason: z.string().max(200).optional() }).safeParse(req.body);
   if (!body.success || new Date(body.data.endsAt) <= new Date(body.data.startsAt)) return res.status(400).json({ error: "Confira o período do bloqueio e tente novamente." });
   res.status(201).json(await prisma.scheduleBlock.create({ data: { ...body.data, startsAt: new Date(body.data.startsAt), endsAt: new Date(body.data.endsAt) } }));
+});
+app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error("[api] Erro interno não tratado", error);
+  if (!res.headersSent) res.status(500).json({ error: "Não foi possível concluir esta ação. Tente novamente." });
 });
