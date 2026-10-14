@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+backend/.env
+*.log
+coverage/
+frontend/.vite/
+*.tsbuildinfo
+backend/src/generated/

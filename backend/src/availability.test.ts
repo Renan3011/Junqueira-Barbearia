@@ -1,0 +1,2 @@
+import { describe,it,expect } from "vitest"; import { freeSlots,overlaps } from "./availability.js";
+describe("agenda",()=>{it("remove horários que se sobrepõem",()=>{const s=freeSlots(540,660,60,"2099-01-10",[{startsAt:new Date("2099-01-10T10:00:00-03:00"),endsAt:new Date("2099-01-10T10:30:00-03:00")}]);expect(s.map(x=>x.toISOString())).not.toContain("2099-01-10T12:30:00.000Z")});it("trata intervalo de ponta como livre",()=>expect(overlaps({startsAt:new Date(0),endsAt:new Date(10)},{startsAt:new Date(10),endsAt:new Date(20)})).toBe(false))});

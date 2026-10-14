@@ -1,0 +1,66 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+enum BookingStatus {
+ PENDING
+ CONFIRMED
+ CANCELLED
+ COMPLETED
+}
+model User {
+ id String @id @default(cuid())
+ email String @unique
+ passwordHash String
+ name String
+ createdAt DateTime @default(now())
+}
+model Service {
+ id String @id @default(cuid())
+ name String
+ price Int
+ durationMinutes Int
+ active Boolean @default(true)
+ bookings Booking[]
+ createdAt DateTime @default(now())
+ @@index([active])
+}
+model Customer {
+ id String @id @default(cuid())
+ name String
+ phone String @unique
+ bookings Booking[]
+ createdAt DateTime @default(now())
+}
+model Booking {
+ id String @id @default(cuid())
+ customerId String
+ serviceId String
+ startsAt DateTime @db.Timestamptz(6)
+ endsAt DateTime @db.Timestamptz(6)
+ status BookingStatus @default(PENDING)
+ note String?
+ createdAt DateTime @default(now())
+ customer Customer @relation(fields:[customerId], references:[id])
+ service Service @relation(fields:[serviceId],references:[id])
+ @@index([startsAt])
+ @@index([status, startsAt])
+}
+model BusinessHour {
+ id String @id @default(cuid())
+ weekday Int @unique
+ openMinute Int
+ closeMinute Int
+ active Boolean @default(true)
+}
+model ScheduleBlock {
+ id String @id @default(cuid())
+ startsAt DateTime @db.Timestamptz(6)
+ endsAt DateTime @db.Timestamptz(6)
+ reason String?
+ createdAt DateTime @default(now())
+ @@index([startsAt, endsAt])
+}
